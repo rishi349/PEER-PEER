@@ -1,0 +1,105 @@
+/*
+  Design tokens — "Vantage" (working name for the platform).
+
+  Subject: a command deck for a distributed organization — the radar is
+  the product's signature feature (master spec §17-19), so the visual
+  identity is built around it even in Phase 1, where the radar itself
+  doesn't exist yet: a slow sweep behind the auth flow, concentric range
+  rings as a recurring motif, monospace for anything that is machine
+  truth (ids, hierarchy paths, timestamps) versus a humane grotesk for
+  anything a person reads.
+
+  Color — deep-space navy surface, a single teal "signal" accent used for
+  presence/success, and three role hues (root/leader/peer) that will
+  double as radar-marker colors once Phase 7 lands.
+*/
+
+:root {
+  --bg: #0a0f1c;
+  --bg-elevated: #0d1526;
+  --surface: #121c33;
+  --surface-raised: #17223d;
+  --border: #223050;
+  --border-strong: #2e4066;
+
+  --text-primary: #e9edf6;
+  --text-secondary: #93a3c2;
+  --text-tertiary: #5b6c8c;
+
+  --signal: #4fd1c5;
+  --signal-dim: rgba(79, 209, 197, 0.16);
+
+  --role-root: #f0523f;
+  --role-root-dim: rgba(240, 82, 63, 0.14);
+  --role-leader: #f0b429;
+  --role-leader-dim: rgba(240, 180, 41, 0.14);
+  --role-peer: #4fd1c5;
+  --role-peer-dim: rgba(79, 209, 197, 0.14);
+
+  --danger: #f0523f;
+  --danger-dim: rgba(240, 82, 63, 0.14);
+
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+button {
+  font-family: inherit;
+}
+
+a {
+  color: var(--signal);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Respect reduced-motion preferences everywhere the sweep/pulse are used. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
