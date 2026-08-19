@@ -1,0 +1,20 @@
+.hierarchy-panel {
+  margin-bottom: 32px;
+}
+
+.hierarchy-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 12px;
+}
+
+.hierarchy-panel__header .dashboard__section-heading {
+  margin-bottom: 0;
+}
+
+.hierarchy-panel__status {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}

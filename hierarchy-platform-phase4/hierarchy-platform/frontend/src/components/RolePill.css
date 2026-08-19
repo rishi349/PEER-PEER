@@ -1,0 +1,31 @@
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.role-pill--root {
+  color: var(--role-root);
+  background: var(--role-root-dim);
+  border-color: rgba(240, 82, 63, 0.3);
+}
+
+.role-pill--leader {
+  color: var(--role-leader);
+  background: var(--role-leader-dim);
+  border-color: rgba(240, 180, 41, 0.3);
+}
+
+.role-pill--peer {
+  color: var(--role-peer);
+  background: var(--role-peer-dim);
+  border-color: rgba(79, 209, 197, 0.3);
+}
