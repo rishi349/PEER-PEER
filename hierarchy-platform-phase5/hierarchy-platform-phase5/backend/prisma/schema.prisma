@@ -1,0 +1,129 @@
+// Hierarchical Peer-to-Peer Coordination Platform
+// Phase 1 — Foundation schema.
+//
+// Deliberately excluded from this phase (added when their phase starts):
+//   - Device                (Phase 8 — multi-device cryptographic identity)
+//   - HierarchyEvent/AuditEvent (Phase 2/3 — added alongside the
+//     operations that emit them, so the shape matches real usage instead
+//     of being guessed up front)
+//   - Removal metadata on User (removalReason, removedBy,
+//     removedBecauseOf, removedAt) — added in Phase 2 with the removal
+//     feature itself, per the master spec's cascading-removal model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ROOT_LEADER
+  LEADER
+  PEER
+}
+
+// First-class status. Removal is explicit state, never inferred — see
+// master spec §5. Only ACTIVE is reachable in Phase 1; REMOVED is part of
+// the enum now so the Phase 2 migration only adds columns, not a new enum
+// value that would require a backfill.
+enum UserStatus {
+  ACTIVE
+  REMOVED
+}
+
+// Master spec §7: why a user was removed. DIRECT = an authorized leader
+// removed them by name. GROUP_LEADER_REMOVED = they were caught in a
+// cascade because their owning leader was removed.
+enum RemovalReason {
+  DIRECT
+  GROUP_LEADER_REMOVED
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // Hierarchy: every non-root user has a logical parent. Self-relation,
+  // nullable only for the organization's ROOT_LEADER. Populated in
+  // Phase 2 when leaders/peers can actually be created under a parent.
+  parentId String?
+  parent   User?   @relation("HierarchyParent", fields: [parentId], references: [id])
+  children User[]  @relation("HierarchyParent")
+
+  name         String
+  email        String @unique
+  passwordHash String
+
+  role   Role
+  status UserStatus @default(ACTIVE)
+
+  // Removal metadata — master spec §8. Deliberately plain scalar columns
+  // (not Prisma relations) referencing another User's id: a self-relation
+  // times three on this model would add real schema complexity for
+  // fields that are audit metadata, not integrity-critical FKs. The
+  // authoritative, non-overwritable history of removals/restorations
+  // lives in HierarchyEvent below; these columns describe *current*
+  // state only and are cleared on reactivation (see hierarchy.service.ts).
+  removalReason    RemovalReason?
+  removedBy        String?
+  removedBecauseOf String?
+  removedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions Session[]
+
+  @@index([organizationId])
+  @@index([parentId])
+  @@map("users")
+}
+
+// One row per issued refresh token, so logout / revocation is real
+// server-side state rather than just deleting a client-side cookie.
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  refreshTokenHash String
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Append-only audit log — master spec §13/§36. Unlike the removal
+// columns on User (which describe *current* state and get cleared on
+// reactivation), these rows are never updated or deleted, so "removed,
+// then restored, then removed again" stays fully reconstructable.
+model HierarchyEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  type           String // NODE_CREATED | NODE_REMOVED | NODE_REACTIVATED | NODE_REASSIGNED
+  actorId        String?
+  targetId       String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([targetId])
+  @@map("hierarchy_events")
+}
