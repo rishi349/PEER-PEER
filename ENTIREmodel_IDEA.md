@@ -1,4 +1,4 @@
-# Hierarchical Peer-to-Peer Coordination Platform --- Claude Project Master Specification
+# Hierarchical Peer-to-Peer Coordination Platform --- ENTIRE_PROJECT_IDEA
 
 ## Project Role
 
