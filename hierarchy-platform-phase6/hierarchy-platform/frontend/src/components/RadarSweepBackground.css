@@ -1,0 +1,51 @@
+.radar-bg {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(79, 209, 197, 0.06), transparent 55%),
+    var(--bg);
+}
+
+.radar-bg__svg {
+  width: min(140vh, 140vw);
+  height: min(140vh, 140vw);
+  opacity: 0.5;
+}
+
+.radar-bg__ring {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.radar-bg__ring--faint {
+  stroke: var(--border);
+}
+
+.radar-bg__crosshair {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.radar-bg__sweep-group {
+  transform-origin: 300px 300px;
+  animation: radar-rotate 8s linear infinite;
+}
+
+.radar-bg__sweep {
+  fill: rgba(79, 209, 197, 0.14);
+}
+
+@keyframes radar-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
