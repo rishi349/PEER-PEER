@@ -1,0 +1,412 @@
+# Phase tracker
+
+Status of the development phases defined in the master specification.
+Update this file whenever a phase is started or completed.
+
+| Phase | Name                        | Status      |
+|-------|-----------------------------|-------------|
+| 1     | Foundation                  | ✅ Done     |
+| 2     | Hierarchy                   | ✅ Done (backend + frontend UI) |
+| 3     | Authorization                | ✅ Done (canPerform service + general visibility scope) |
+| 4     | Real-Time Presence          | ✅ Done (backend only — see below) |
+| 5     | WebRTC P2P                  | ✅ Done (backend/control-plane only — see below) |
+| 6     | Location                    | ✅ Done (backend + minimal frontend — see below) |
+| 7     | Radar                       | ✅ Done (backend fully verified; frontend built, unverified against a live stack — see below) |
+| 8     | Security Hardening          | ⬜ Not started |
+| 9     | Detailed Data Transfer      | ⬜ Not started (design pending from user) |
+| 10    | Testing and Deployment      | ⬜ Not started |
+
+## Phase 1 — Foundation (this commit)
+
+**What was built**
+
+- Monorepo scaffold: `backend/` (Express + TypeScript + Prisma) and
+  `frontend/` (React + TypeScript + Vite).
+- `docker-compose.yml` for local PostgreSQL + Redis.
+- Prisma schema: `Organization`, `User` (role, status), `Session`
+  (refresh-token rotation/revocation).
+- Auth module: `POST /auth/register`, `POST /auth/login`,
+  `POST /auth/refresh`, `POST /auth/logout`, `GET /users/me`.
+- Structured error model, zod request validation, centralized error
+  handling middleware, JWT auth guard middleware.
+- Redis client wired up with a health check (`GET /health`) but not used
+  functionally yet — that begins in Phase 4 (Presence).
+- Frontend: Login / Register / Dashboard pages, a small auth store
+  (zustand) with in-memory access token + silent refresh, a typed API
+  client.
+
+**Deliberately not built yet**
+
+- Any hierarchy mutation beyond the implicit root leader created at
+  registration (no `LEADER`/`PEER` creation, no `parentId` assignment
+  flow).
+- Removal, cascading removal, removal reasons, restoration.
+- Authorization/visibility scoping beyond "must be authenticated."
+- Presence, location, radar, WebRTC signaling, device identity.
+
+## Phase 2 — Hierarchy frontend (this session)
+
+Added the Dashboard hierarchy UI on top of the already-complete backend:
+`HierarchyPanel` (fetches `GET /hierarchy/subtree` on mount), an
+add-Leader/Peer form (`POST /hierarchy/leaders` / `/peers`, always under
+the signed-in user — that's all the API supports), a flat indented tree
+built client-side from `parentId`, a Remove action with a confirmation
+modal that predicts and warns about cascade count, a Reactivate action,
+and a removal-details modal (reason / removed by / removed because of /
+removed at) sourced only from backend fields — never inferred. Full
+detail in `HANDOFF.md` §4b.
+
+Verified: `tsc --noEmit` (strict, `noUnusedLocals`/`noUnusedParameters`)
+and `vite build` both clean. **Not** exercised against a running
+backend in this sandbox — same `binaries.prisma.sh` network restriction
+noted in Phase 2's backend verification; Prisma can't run here, so there
+is no live API to click through. Next session should smoke-test this
+against a real running stack.
+
+## Next: Phase 3 — Authorization
+
+`canPerform(actor, action, target)` service and real branch-isolated
+visibility scoping (master spec §16) — `GET /hierarchy` is currently a
+`ROOT_LEADER`-only role gate, not the general visibility service.
+
+## Phase 3 — Authorization (this session)
+
+Added `backend/src/modules/authorization/` (`authorization.service.ts` +
+`authorization.types.ts`): a central `canPerform(actor, action, target)`
+/ `assertCanPerform(...)` per master spec §15, covering `CREATE_LEADER`,
+`CREATE_PEER`, `REMOVE_NODE`, `REACTIVATE_NODE`, `VIEW_VISIBILITY_SCOPE`.
+`hierarchy.service.ts`'s Phase 2 inline `ROLE_CREATION_RULES` and
+`requireOwnership` were removed and now delegate here instead — same
+rules, single source of truth.
+
+Also replaced the Phase 2 `ROOT_LEADER`-only `GET /hierarchy` role gate
+with a real general visibility-scope endpoint
+(`authorizationService.getVisibilityScope` → ancestors + descendants),
+available to any active user, per master spec §16. Route/response shape
+changed (`{ self, ancestors, descendants }` instead of `{ nodes }`) —
+safe, because the frontend never called this endpoint (it only ever used
+`/hierarchy/subtree`, which is unchanged).
+
+15 new vitest unit tests cover the role-creation rules and ownership
+logic (`hierarchy.repository` mocked, since Prisma can't run in this
+sandbox) — all passing. Full detail in `HANDOFF.md` §4c.
+
+**Also fixed in passing**: `backend/tsconfig.json` was failing
+`tsc --noEmit` outright (`moduleResolution=node` deprecation error) with
+the TypeScript version this sandbox installed — added
+`"ignoreDeprecations": "5.0"` (not `"6.0"`, which is an invalid value
+for that flag). Unrelated to Phase 3 logic, but was blocking
+verification of it. After that fix, `tsc --noEmit` showed the same
+`@prisma/client`-types-unavailable errors every phase has had (confirmed
+via `npx prisma generate` — still blocked by `binaries.prisma.sh`, same
+as always), plus two real `noUncheckedIndexedAccess` bugs in the new
+`authorization.service.ts` (same class of bug Phase 2 hit once already)
+— fixed with the same `?? []` fallback pattern. Full detail in
+`HANDOFF.md` §5c.
+
+## Phase 4 — Real-Time Presence (this session)
+
+Added `backend/src/modules/presence/` (types, repository, service, Socket.IO
+gateway, Redis keyspace-expiry listener, REST controller/routes) plus
+`backend/src/config/socket.ts` (Socket.IO server + `@socket.io/redis-adapter`
+for cross-node broadcast). `index.ts` now boots an `http.Server` instead of
+calling `app.listen` directly, so Socket.IO can upgrade connections on the
+same port.
+
+Presence is ONLINE/OFFLINE only, driven by a Redis key with a 30s TTL
+(`presence:{userId}`) renewed by a client `presence:heartbeat` socket event.
+TTL expiry is detected via Redis keyspace notifications (best-effort —
+falls back gracefully to "just reads as OFFLINE" if the Redis instance
+disallows `CONFIG SET`). Multi-device/multi-tab is supported via a
+`presence:sockets:{userId}` Redis set — a user only goes OFFLINE once
+their *last* tracked socket disconnects. Broadcasts only fire on real
+ONLINE↔OFFLINE transitions, never on heartbeat renewal, and are scoped to
+exactly the audience authorized to see them (reuses Phase 3's
+`authorizationService.getVisibilityScope` — proven symmetric: the set of
+users who may see X's presence is exactly X's own ancestors+descendants).
+New endpoint: `GET /presence` (REST snapshot fallback; the live path is
+Socket.IO's `presence:snapshot`/`presence:update` events).
+
+Backend-only, matching the Phase 3 precedent (master spec §47's Phase 4
+list is backend infrastructure only) — no frontend presence UI this
+session.
+
+13 new vitest unit tests cover the transition logic (mocking
+`presence.repository`, `authorization.service`, and Prisma) — all passing
+alongside the 15 pre-existing Phase 3 tests (28/28 total). `tsc --noEmit`
+clean except the same pre-existing `@prisma/client`-types-unavailable
+errors every phase has had (confirmed still caused by the
+`binaries.prisma.sh` block, not new code).
+
+Two known, deliberately-not-solved-this-phase gaps are documented in
+`HANDOFF.md` §4d/§5d: (1) a user removed mid-session keeps their existing
+socket connection (and can keep heartbeating) until it naturally
+disconnects or their access token expires — only *new* connections are
+blocked; (2) if Redis disallows `CONFIG SET`, real-time TTL-expiry push
+events won't fire, though snapshot reads stay correct regardless. Full
+detail in `HANDOFF.md` §4d/§5d.
+
+**Not verified this session** (same standing sandbox limitation as every
+phase before it): nothing was run against a live Postgres/Redis/Socket.IO
+stack, multi-server broadcast was not exercised against two real server
+processes, and the Redis keyspace-notification path was not observed
+firing end-to-end. See `HANDOFF.md` §5d for the specific next-session
+checklist.
+
+## Phase 5 — WebRTC P2P (this session)
+
+Added `backend/src/modules/p2p/` (types, Redis repository, service,
+Socket.IO gateway) — the **control-plane** half of master spec §23-28
+only: session-authorization leases and signaling relay. This backend
+never touches an actual `RTCPeerConnection`/`DataChannel` — those live
+entirely in the browser, peer-to-peer, per §23-24 — so, like Phase 4,
+this is backend/infrastructure-only; no frontend WebRTC client was
+built this session.
+
+**Authorization**: a new `INITIATE_P2P_SESSION` action in
+`authorization.service.ts` — unlike `REMOVE_NODE`/`REACTIVATE_NODE`
+(actor must specifically be an *ancestor* of the target), P2P
+authorization is symmetric: either direction of the ancestor/descendant
+relation permits a session, matching master spec §16's visibility model
+and reusing the same relation `presence.service.ts` already relies on
+for its own broadcast audience.
+
+**Leases**: Redis-only (`p2p:lease:{sorted-pair}`, 45s TTL, its own
+namespace/TTL distinct from presence's), keyed by canonical
+lexicographically-sorted user pair so either participant can renew.
+`p2p:request-session` creates/refreshes a lease and broadcasts
+`p2p:session-authorized` to both participants (mirrors presence's
+connect-broadcasts); `p2p:renew-session` re-runs the **full**
+Postgres-backed authorization check every time (deliberately more
+expensive than presence's silent heartbeat — this is what actually
+enforces master spec §26's "prevent lease renewal" once someone is
+removed) and is silent on success; `p2p:close-session` is a voluntary,
+idempotent teardown. `p2p:signal` relays offer/answer/ICE-candidate
+messages to the other participant's room after a cheap Redis-only lease
+check (no Postgres hit — signaling can be high-frequency).
+
+**Revocation on removal (§26)**: `hierarchy.service.ts` gained a plain
+`hierarchyEvents` `EventEmitter` (same decoupling pattern as Phase 4's
+`presenceEvents`) that emits once per successful `removeNode` call, with
+the flat list of every newly-REMOVED id (target + cascade). Only
+`p2p.gateway.ts` subscribes to it — `hierarchy.service.ts` still knows
+nothing about Socket.IO or P2P — and calls
+`p2pService.revokeSessionsForUser` for each id, deleting every lease
+that user held and broadcasting `p2p:session-revoked` (`reason:
+"NODE_REMOVED"`) to the other participant. Per master spec §27, this
+cannot force-close an already-open WebRTC connection — it can only
+delete the authorization and ask a compliant client to close.
+
+**Refactor along the way**: connection-time Socket.IO auth
+(`authenticateSocket`) moved from a private function inside
+`presence.gateway.ts` into a new shared `middleware/socketAuth.ts`,
+registered exactly once in `config/socket.ts`'s `initSocketIO` rather
+than once per gateway — needed once a second gateway (`p2p.gateway.ts`)
+had to run on the same authenticated connection. Behavior-preserving;
+`presence.gateway.ts`'s own logic is otherwise unchanged.
+
+18 new vitest unit tests (`p2p.service.test.ts`, mocking Postgres/Redis
+the same way every prior test file does) plus 5 new
+`authorization.service.test.ts` cases for `INITIATE_P2P_SESSION` — 51/51
+passing project-wide. `tsc --noEmit`: zero errors in any new or edited
+Phase 5 file; the only errors are the same standing
+`@prisma/client`-types-unavailable class every phase has had (confirmed
+via `npx prisma generate`, still blocked by `binaries.prisma.sh`, same
+as always — see HANDOFF.md §5e).
+
+Deliberately **not** built this phase: any REST endpoints for P2P
+(everything is Socket.IO-only — signaling and renewal are inherently
+real-time and already require an active socket, so a REST path would be
+a redundant code path; see master spec §43's "don't blindly implement
+every endpoint"), and file-transfer/DataChannel-payload logic of any
+kind (§33/§54 — Phase 9 is explicitly deferred pending the user's own
+design, unaffected by this phase). Full detail, including a known
+lease-index-set memory-leak-on-natural-TTL-expiry gap (harmless,
+documented, not fixed this phase) in `HANDOFF.md` §4e/§5e.
+
+**Not verified this session** (same standing sandbox limitation as
+every phase before it): nothing was run against a live
+Postgres/Redis/Socket.IO stack, no two real browsers ever exchanged a
+real WebRTC offer/answer/ICE candidate through this relay, and the
+hierarchy-removal → lease-revocation bridge was only exercised through
+mocked unit tests, never end-to-end against a real removal through the
+real HTTP layer. See `HANDOFF.md` §5e for the specific next-session
+checklist.
+
+## Phase 6 — Location (this session)
+
+Added `backend/src/modules/location/` (types, Redis repository, pure
+geo-math helper, service, REST controller/routes) — its own module, not
+folded into `presence.*`, per HANDOFF.md §7 item 6's explicit warning
+that presence (availability) and location (spatial position) are
+deliberately separate concerns even though the Redis+TTL infrastructure
+looks similar. Built directly from `PHASE6_PLAN.md`'s decisions, which
+were confirmed with the user before this session started:
+
+- **Opt-in, off by default** (`PHASE6_PLAN.md` §2a): a new
+  `locationSharingEnabled` column on `User` (Postgres — a durable
+  preference, not an ephemeral reading), defaulting to `false`. The
+  backend independently rejects a `POST /location` update from a user
+  with sharing disabled — never relies on the frontend simply not
+  sending one.
+- **Server-only distance/bearing, never raw coordinates** (§2b): exact
+  coordinates are stored in Redis (`location:{userId}`, own TTL constant
+  `LOCATION_TTL_SECONDS = 50` — deliberately a third distinct number from
+  presence's 30 and P2P's 45), but the only thing any API returns about
+  *another* user is a computed `{ distanceMeters, bearingDegrees }` (pure
+  haversine/initial-bearing math in `location.geo.ts`, unit-tested
+  directly with no mocks needed). "No location available" — from opted-
+  out sharing, a TTL-expired reading, or the requester's own missing
+  reading — is modeled as response data (`available: false, reason: ...`),
+  not a thrown error, matching the plan's explicit instruction not to
+  treat a legitimate "no data yet" case as a failure.
+- **Authorization reuses the existing visibility-scope pattern**, not a
+  new `Action`: `getDistanceAndBearing` checks the target is within the
+  requester's own `authorizationService.getVisibilityScope` result (own
+  ancestors + own descendants) — the same symmetric relation
+  `presence.service.ts`'s `getAudience` already relies on. No new case
+  was added to `authorization.types.ts`'s `Action` union.
+- **REST, pull-only** — no Socket.IO surface this phase (`PHASE6_PLAN.md`
+  §4 open questions 1-2, resolved): `POST /location` (update),
+  `GET`/`PATCH /location/sharing` (toggle), `GET
+  /location/distance/:targetUserId` (pull-only distance/bearing query).
+  A deliberate departure from master spec §43's literal
+  `POST /presence/location` listing — folding this into the presence
+  router was explicitly rejected, and §43's own closing line permits
+  this.
+- **Minimal frontend slice, this session** (§2d — unlike Phases 3-5,
+  which were backend-only by design): `LocationPanel` (opt-in toggle +
+  last-sent status, no spatial rendering — that's Phase 7's radar),
+  `useLocationSharing` (a hook wrapping
+  `navigator.geolocation.getCurrentPosition` on a ~20s interval,
+  gated entirely on the confirmed server-side preference — never calls
+  the browser geolocation API, and never prompts for permission, while
+  sharing is off), and `locationStore`/`api/location.ts` following the
+  exact shape `hierarchyStore`/`api/hierarchy.ts` already established.
+
+25 new backend vitest unit tests (17 in `location.service.test.ts`
+covering opt-in gating/authorization/availability branching, mocking
+Postgres/Redis/authorization the same way every prior test file does; 8
+in `location.geo.test.ts` covering the pure distance/bearing math
+directly, no mocks needed) — 76/76 passing project-wide.
+`npx tsc --noEmit` on both `backend` and `frontend`: zero errors in any
+new or edited Phase 6 file; the only backend errors are the same
+standing `@prisma/client`-types-unavailable class every phase has had
+(confirmed via `npx prisma generate`, still blocked by
+`binaries.prisma.sh`). `npx vite build` (frontend) also clean.
+
+**Not verified this session** (same standing sandbox limitation as every
+phase before it): nothing was run against a live Postgres/Redis stack,
+so the real `locationSharingEnabled` column has never been migrated or
+queried for real, the Redis TTL/expiry behavior for `location:*` keys
+has never been observed, and no real browser has ever actually granted
+geolocation permission and sent a real `POST /location` through this
+code. See `HANDOFF.md` §5f for the specific next-session checklist.
+
+## Phase 7 — Radar (this session)
+
+Added `backend/src/modules/radar/` (types, zod query schema, service,
+REST controller/routes) — a thin composition layer, not a new source of
+truth. It introduces zero new Redis namespaces, zero new Postgres
+columns, and zero new authorization primitives: it composes three
+already-built modules per master spec §17's pipeline —
+`authorizationService.getVisibilityScope` (who), `presenceService.getSnapshotForActor`
+(are they here), and `locationService.getDistanceAndBearing` (where,
+relative to me) — and applies master spec §18's LEADERS/PEERS/ALL role
+filter on top of the result. New endpoint: `GET
+/radar/visible-users?filter=LEADERS|PEERS|ALL` (defaults to `ALL`),
+returning `{ self, filter, users: [...] }` where each user carries role,
+relation (ANCESTOR/DESCENDANT), presence, a location result (available
+distance+bearing, or a typed unavailable reason — reusing Phase 6's
+exact `DistanceBearingResult` shape untouched), and a `stale` flag
+(location reading older than a new `RADAR_STALE_LOCATION_SECONDS = 25`
+constant).
+
+Deliberately does **not** filter out offline users or users with no
+location reading — master spec §39 lists "connection state" and a
+"stale-location indicator" as radar UI concerns, which only makes sense
+if those users are still in the response for the frontend to render
+distinctly, not silently dropped server-side. REMOVED users are
+excluded regardless of role/relation (discoverability, master spec §20).
+
+A deliberate, documented performance tradeoff: `getVisibleUsers` calls
+`locationService.getDistanceAndBearing` once per visible candidate
+rather than reimplementing its authorization/availability logic inline,
+which means each candidate re-derives the actor's own visibility scope
+internally (an extra pair of recursive-CTE queries per candidate). This
+was chosen to reuse Phase 6's already-verified, encapsulated logic
+(`location.repository.ts`'s own docblock reserves it for
+`location.service.ts` alone) rather than duplicate its branching a
+second time — master spec §35's priority order ("correctness over
+premature optimization... unless profiling demonstrates a need") is the
+explicit justification. See `HANDOFF.md` §4g for the exact fix
+(`getDistanceAndBearingBatch`) if a real deployment's org sizes ever
+make this measurably slow.
+
+16 new vitest unit tests (`radar.service.test.ts`, mocking Postgres,
+`authorization.service`, `presence.service`, and `location.service` —
+same reasoning as every prior test file: Prisma/Redis can't run in this
+sandbox) — **92/92 passing project-wide** (76 pre-existing + 16 new).
+`npx tsc --noEmit` (backend): zero errors in any new radar file except
+the same standing `@prisma/client`-types-unavailable class every phase
+has had.
+
+**Frontend — built this session** (unlike Phases 3-5, backend-only by
+design; more like Phase 6's minimal slice, but this is the full feature,
+not a minimal one): a dedicated `/radar` page
+(`pages/RadarPage.tsx`, reachable via a new "Open Radar" button on the
+Dashboard topbar), following master spec §38's component breakdown —
+`RadarContainer` (fetch + 5s poll while mounted, composes everything
+below), `RadarCanvas` (SVG radar face: range rings, a rotating sweep,
+a center "YOU" marker, one `RadarUserMarker` per user with an available
+location), `RadarControls` (Leaders/Peers/All), `RadarRangeControl`
+(client-side-only display range, never sent to the backend — the
+backend already returns everyone in scope regardless of distance),
+`RadarUserDetails` (selected-user panel: relation, connection state,
+distance+bearing or the specific unavailable reason, a stale badge),
+and `RadarLegend`. All spatial math (`getRadarPosition`,
+`bearingToCompass`, `formatDistance`) lives in a dependency-free
+`radarMath.ts`, kept separate from rendering per §38's own instruction
+— mirrors `location.geo.ts`'s same separation on the backend. Users
+without an available location result are listed separately as "Off
+radar" rather than silently dropped, since they can't be placed
+spatially but are still authorized/discoverable.
+
+`npx tsc --noEmit` and `npm run build` (`tsc -b && vite build`) on
+`frontend/`: **both clean, zero errors/warnings**, 100 modules (up from
+77 after Phase 6).
+
+**Not verified this session, and this is a bigger gap than usual — read
+before trusting this phase**: unlike every prior phase, which at least
+had type-level/mocked-unit verification of both halves, this session's
+frontend radar UI has *only* been type-checked and production-built —
+**it has never been opened in a real browser, never fetched real data
+from a running backend, never had a marker actually rendered from a
+real distance/bearing pair, and the 5s poll loop has never been observed
+running.** Combined with the backend's own standing gap (nothing in this
+project has ever run against a live Postgres/Redis stack), Phase 7
+carries every prior phase's "never run for real" caveat *plus* a new
+one: nobody has confirmed the SVG math (`getRadarPosition`) actually
+places a marker in a sane spot for a real coordinate pair, nor that the
+polling/filter-change/selection interactions actually feel right in a
+browser. See `HANDOFF.md` §5g for the specific next-session checklist —
+prioritize a real click-through of this phase before adding anything on
+top of it.
+
+## Next: Phase 8 — Security Hardening
+
+Device identity, Web Crypto where appropriate, device revocation,
+stronger session security, audit logs, P2P session hardening (master
+spec §47 Phase 8). `HANDOFF.md` §7/§8 lists several gaps already flagged
+as reasonable Phase 8 candidates from earlier phases (a removed user's
+already-open Socket.IO connection isn't forcibly closed; the P2P
+revocation broadcast is a request, not a guarantee) — read those before
+starting, since Phase 8 is partly "go back and close gaps deliberately
+left open," not only new feature work. Also still worth prioritizing,
+independent of Phase 8: actually running this project against a live
+Postgres/Redis stack and a real browser for the first time — see
+`HANDOFF.md` §7 item 9 for why this is flagged as the single biggest
+unknown-unknown risk in the project right now, now joined by Phase 7's
+own never-opened-in-a-browser gap above.
+
+

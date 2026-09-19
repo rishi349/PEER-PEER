@@ -1,0 +1,90 @@
+.radar-canvas {
+  background: radial-gradient(circle at 50% 50%, var(--bg-elevated), var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+
+.radar-canvas__svg {
+  width: 100%;
+  height: 100%;
+}
+
+.radar-canvas__ring {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.radar-canvas__ring--dim {
+  stroke: var(--border);
+}
+
+.radar-canvas__crosshair {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.radar-canvas__sweep-group {
+  transform-origin: 0 0;
+  animation: radar-sweep-rotate 4s linear infinite;
+}
+
+.radar-canvas__sweep {
+  fill: var(--signal);
+  opacity: 0.12;
+}
+
+@keyframes radar-sweep-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.radar-canvas__you-dot {
+  fill: var(--signal);
+}
+
+.radar-canvas__you-ring {
+  stroke: var(--signal);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.radar-canvas__you-label {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.radar-marker {
+  cursor: pointer;
+}
+
+.radar-marker__dot {
+  transition: opacity 0.15s ease;
+}
+
+.radar-marker__ring {
+  stroke: var(--signal);
+  stroke-width: 1.5;
+}
+
+.radar-marker__label {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.radar-marker--selected .radar-marker__label {
+  fill: var(--text-primary);
+}

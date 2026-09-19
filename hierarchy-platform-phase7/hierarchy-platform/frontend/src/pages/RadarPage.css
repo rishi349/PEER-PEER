@@ -1,0 +1,15 @@
+.radar-page__content {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 40px 28px 80px;
+}
+
+.radar-page__heading {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.radar-page__subheading {
+  margin-bottom: 24px;
+  font-size: 13px;
+}

@@ -1,0 +1,70 @@
+.radar-details {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  font-size: 13px;
+}
+
+.radar-details--empty {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+.radar-details__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.radar-details__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.radar-details__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.radar-details__label {
+  color: var(--text-tertiary);
+}
+
+.radar-details__value {
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.radar-details__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+}
+
+.radar-details__dot--online {
+  background: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-dim);
+}
+
+.radar-details__stale {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--role-leader);
+  border: 1px solid var(--role-leader);
+  border-radius: 4px;
+  padding: 1px 4px;
+}

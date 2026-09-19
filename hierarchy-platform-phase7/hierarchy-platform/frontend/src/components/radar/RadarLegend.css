@@ -1,0 +1,26 @@
+.radar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.radar-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.radar-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.radar-legend__dot--dim {
+  background: var(--text-tertiary);
+  opacity: 0.5;
+}

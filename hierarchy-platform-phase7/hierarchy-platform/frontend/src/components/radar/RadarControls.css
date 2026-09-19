@@ -1,0 +1,29 @@
+.radar-controls {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.radar-controls__button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.radar-controls__button:hover {
+  color: var(--text-primary);
+}
+
+.radar-controls__button--active {
+  background: var(--signal-dim);
+  color: var(--signal);
+}
